@@ -18,84 +18,43 @@ steps:
 
 - checkout: self
 
-# Debug Repository
-- script: |
-    echo "Build Sources Directory:"
-    echo $(Build.SourcesDirectory)
-    ls -R $(Build.SourcesDirectory)
-  displayName: 'Verify Repository Files'
-
-# Build Docker Image
+# Build and Push Docker Image
 - task: Docker@2
-  displayName: Build Docker Image
+  displayName: Build and Push Image
   inputs:
-    command: build
+    command: buildAndPush
     repository: $(imageRepository)
     dockerfile: $(dockerfilePath)
     containerRegistry: $(dockerRegistryServiceConnection)
     tags: |
       $(tag)
 
-# Push Docker Image
-- task: Docker@2
-  displayName: Push Docker Image
+# Update image in deployment.yaml
+- task: Bash@3
+  displayName: Update Deployment Image
   inputs:
-    command: push
-    repository: $(imageRepository)
-    containerRegistry: $(dockerRegistryServiceConnection)
-    tags: |
-      $(tag)
+    targetType: 'inline'
+    script: |
+      sed -i "s|pythonlask.azurecr.io/studenthub:latest|$(containerRegistry)/$(imageRepository):$(tag)|g" k8s/deployment.yaml
+      cat k8s/deployment.yaml
 
-# Login to Azure and get AKS credentials
+# Deploy to AKS using Azure CLI
 - task: AzureCLI@2
-  displayName: Connect to AKS
+  displayName: Deploy to AKS
   inputs:
-    azureSubscription: $(azureSubscription)
-    scriptType: bash
-    scriptLocation: inlineScript
+    azureSubscription: 'rm-connection'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
     inlineScript: |
       az aks get-credentials \
-        --resource-group $(aksResourceGroup) \
-        --name $(aksCluster) \
+        --resource-group rg-python \
+        --name aks-python \
         --overwrite-existing
 
-# Update Image in deployment.yaml
-- script: |
-    sed -i "s|pythonlask.azurecr.io/studenthub:latest|$(containerRegistry)/$(imageRepository):$(tag)|g" k8s/deployment.yaml
-    cat k8s/deployment.yaml
-  displayName: Update Deployment Image
+      kubectl apply -f k8s/deployment.yaml
+      kubectl apply -f k8s/service.yaml
 
-# Deploy Deployment
-- task: Kubectl@1
-  displayName: Deploy Deployment
-  inputs:
-    connectionType: 'Azure Resource Manager'
-    azureSubscriptionEndpoint: $(azureSubscription)
-    azureResourceGroup: $(aksResourceGroup)
-    kubernetesCluster: $(aksCluster)
-    command: apply
-    useConfigurationFile: true
-    configuration: 'k8s/deployment.yaml'
+      kubectl rollout status deployment/studenthub
 
-# Deploy Service
-- task: Kubectl@1
-  displayName: Deploy Service
-  inputs:
-    connectionType: 'Azure Resource Manager'
-    azureSubscriptionEndpoint: $(azureSubscription)
-    azureResourceGroup: $(aksResourceGroup)
-    kubernetesCluster: $(aksCluster)
-    command: apply
-    useConfigurationFile: true
-    configuration: 'k8s/service.yaml'
-
-# Verify Deployment
-- task: Kubectl@1
-  displayName: Verify Deployment
-  inputs:
-    connectionType: 'Azure Resource Manager'
-    azureSubscriptionEndpoint: $(azureSubscription)
-    azureResourceGroup: $(aksResourceGroup)
-    kubernetesCluster: $(aksCluster)
-    command: get
-    arguments: 'pods,svc'
+      kubectl get pods
+      kubectl get svc
