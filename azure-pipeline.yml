@@ -7,76 +7,95 @@ pool:
 variables:
   imageRepository: 'studenthub'
   containerRegistry: 'pythonlask.azurecr.io'
+  dockerRegistryServiceConnection: 'dr-connection'
+  azureSubscription: 'rm-connection'
+  aksResourceGroup: 'rg-python'
+  aksCluster: 'aks-python'
   dockerfilePath: 'Dockerfile'
   tag: '$(Build.BuildId)'
 
-  # Service Connections
-  dockerRegistryServiceConnection: 'dr-connection'
-  azureSubscription: 'rm-connection'
+steps:
 
-  # AKS
-  aksResourceGroup: 'pythonflask-rg'
-  aksClusterName: 'aks-pythonflask'
+- checkout: self
 
-stages:
+# Debug Repository
+- script: |
+    echo "Build Sources Directory:"
+    echo $(Build.SourcesDirectory)
+    ls -R $(Build.SourcesDirectory)
+  displayName: 'Verify Repository Files'
 
-# ============================
-# Build & Push Docker Image
-# ============================
-- stage: Build
-  displayName: Build and Push Image
+# Build Docker Image
+- task: Docker@2
+  displayName: Build Docker Image
+  inputs:
+    command: build
+    repository: $(imageRepository)
+    dockerfile: $(dockerfilePath)
+    containerRegistry: $(dockerRegistryServiceConnection)
+    tags: |
+      $(tag)
 
-  jobs:
-  - job: BuildPush
-    displayName: Build Docker Image
+# Push Docker Image
+- task: Docker@2
+  displayName: Push Docker Image
+  inputs:
+    command: push
+    repository: $(imageRepository)
+    containerRegistry: $(dockerRegistryServiceConnection)
+    tags: |
+      $(tag)
 
-    steps:
+# Login to Azure and get AKS credentials
+- task: AzureCLI@2
+  displayName: Connect to AKS
+  inputs:
+    azureSubscription: $(azureSubscription)
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      az aks get-credentials \
+        --resource-group $(aksResourceGroup) \
+        --name $(aksCluster) \
+        --overwrite-existing
 
-    - checkout: self
+# Update Image in deployment.yaml
+- script: |
+    sed -i "s|pythonlask.azurecr.io/studenthub:latest|$(containerRegistry)/$(imageRepository):$(tag)|g" k8s/deployment.yaml
+    cat k8s/deployment.yaml
+  displayName: Update Deployment Image
 
-    - task: Docker@2
-      displayName: Build and Push Docker Image
-      inputs:
-        command: buildAndPush
-        repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
-        containerRegistry: $(dockerRegistryServiceConnection)
-        tags: |
-          $(tag)
-          latest
+# Deploy Deployment
+- task: Kubectl@1
+  displayName: Deploy Deployment
+  inputs:
+    connectionType: 'Azure Resource Manager'
+    azureSubscriptionEndpoint: $(azureSubscription)
+    azureResourceGroup: $(aksResourceGroup)
+    kubernetesCluster: $(aksCluster)
+    command: apply
+    useConfigurationFile: true
+    configuration: 'k8s/deployment.yaml'
 
-# ============================
-# Deploy to AKS
-# ============================
-- stage: Deploy
-  displayName: Deploy to AKS
+# Deploy Service
+- task: Kubectl@1
+  displayName: Deploy Service
+  inputs:
+    connectionType: 'Azure Resource Manager'
+    azureSubscriptionEndpoint: $(azureSubscription)
+    azureResourceGroup: $(aksResourceGroup)
+    kubernetesCluster: $(aksCluster)
+    command: apply
+    useConfigurationFile: true
+    configuration: 'k8s/service.yaml'
 
-  dependsOn: Build
-
-  jobs:
-  - job: DeployAKS
-    displayName: Deploy Application
-
-    steps:
-
-    - task: AzureCLI@2
-      displayName: Get AKS Credentials
-      inputs:
-        azureSubscription: $(azureSubscription)
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
-          az aks get-credentials \
-            --resource-group $(aksResourceGroup) \
-            --name $(aksClusterName) \
-            --overwrite-existing
-
-    - task: Kubernetes@1
-      displayName: Deploy to AKS
-      inputs:
-        connectionType: 'None'
-        command: apply
-        useConfigurationFile: true
-        configuration: |
-          k8s/deployment.yaml
-          k8s/service.yaml
+# Verify Deployment
+- task: Kubectl@1
+  displayName: Verify Deployment
+  inputs:
+    connectionType: 'Azure Resource Manager'
+    azureSubscriptionEndpoint: $(azureSubscription)
+    azureResourceGroup: $(aksResourceGroup)
+    kubernetesCluster: $(aksCluster)
+    command: get
+    arguments: 'pods,svc'
