@@ -14,7 +14,7 @@ kind: Service
 metadata:
   name: studenthub-service
 spec:
-  type: NodePort
+  type:  LoadBalancer
   selector:
     app: studenthub
   ports:
