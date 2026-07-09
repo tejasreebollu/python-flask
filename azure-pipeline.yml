@@ -5,7 +5,7 @@ variables:
 - template: variables.yml
 
 pool:
-  vmImage: $(vmImage)
+  vmImage: 'ubuntu-latest'
 
 stages:
 
