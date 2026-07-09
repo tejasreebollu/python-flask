@@ -1,0 +1,24 @@
+variables:
+
+  # Azure
+  azureServiceConnection: 'airm-connection'
+  resourceGroup: 'aiproject-south'
+  location: 'South India'
+
+  # Container Registry
+  acrName: 'aiproject1'
+  acrLoginServer: 'aiproject1.azurecr.io'
+  imageRepository: 'studenthub'
+
+  # AKS
+  aksCluster: 'aks-newaipjt'
+  kubernetesServiceConnection: 'kube-cluster'
+
+  # GitHub
+  githubServiceConnection: 'git-aionnection'
+
+  # Build
+  imageTag: '$(Build.BuildId)'
+
+  # Namespace
+  namespace: 'default'
