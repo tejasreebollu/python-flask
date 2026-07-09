@@ -1,9 +1,13 @@
+
 variables:
 
   # Azure
   azureServiceConnection: 'airm-connection'
   resourceGroup: 'aiproject-south'
   location: 'South India'
+
+  # ACR Service Connection
+  acrServiceConnection: 'dgai-connection'
 
   # Container Registry
   acrName: 'aiproject1'
